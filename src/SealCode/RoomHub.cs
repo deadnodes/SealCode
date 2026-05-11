@@ -81,10 +81,9 @@ public sealed class RoomHub : Hub
 
         try
         {
-            room = _roomManager.RegisterUserInRoom(
-                parsedRoomId,
-                connectionId,
-                new RoomUser(displayName));
+            var platformDisplayName = !string.IsNullOrWhiteSpace(access.Name)
+                && string.Equals(displayName, access.Name.Trim(), StringComparison.OrdinalIgnoreCase);
+            room = RegisterUserInRoom(parsedRoomId, connectionId, displayName, platformDisplayName, out displayName);
         }
         catch (RoomNotFoundException ex)
         {
@@ -110,6 +109,45 @@ public sealed class RoomHub : Hub
         _logger.LogInformation("User joined {RoomId} ({Name}) as {RoomUser}", parsedRoomId.Value, room.Name.Value, displayName);
 
         return joinResult;
+    }
+
+    private RoomState RegisterUserInRoom(
+        RoomId parsedRoomId,
+        ConnectionId connectionId,
+        string displayName,
+        bool allowGeneratedSuffix,
+        out string joinedDisplayName)
+    {
+        joinedDisplayName = displayName;
+
+        try
+        {
+            return _roomManager.RegisterUserInRoom(
+                parsedRoomId,
+                connectionId,
+                new RoomUser(displayName));
+        }
+        catch (AddRoomUserException ex) when (allowGeneratedSuffix && IsDisplayNameConflict(ex))
+        {
+            for (var suffix = 2; suffix <= MAXGENERATEDDISPLAYNAMESUFFIX; suffix++)
+            {
+                var generatedDisplayName = $"{displayName} ({suffix})";
+                try
+                {
+                    var room = _roomManager.RegisterUserInRoom(
+                        parsedRoomId,
+                        connectionId,
+                        new RoomUser(generatedDisplayName));
+                    joinedDisplayName = generatedDisplayName;
+                    return room;
+                }
+                catch (AddRoomUserException retryEx) when (IsDisplayNameConflict(retryEx))
+                {
+                }
+            }
+
+            throw;
+        }
     }
 
     /// <summary>
@@ -409,4 +447,8 @@ public sealed class RoomHub : Hub
     private readonly ILanguageValidator _languageValidator;
     private readonly IPlatformAccessValidator _accessValidator;
     private readonly ILogger<RoomHub> _logger;
+    private const int MAXGENERATEDDISPLAYNAMESUFFIX = 5;
+
+    private static bool IsDisplayNameConflict(AddRoomUserException exception)
+        => exception.Message.Contains("Display name already in use", StringComparison.OrdinalIgnoreCase);
 }

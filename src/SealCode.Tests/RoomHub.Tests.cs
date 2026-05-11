@@ -161,6 +161,70 @@ public sealed class RoomHubTests
         addToGroupCalls.Should().Be(1);
     }
 
+    [Fact(DisplayName = "JoinRoomAsyncShouldGenerateSuffixForPlatformDisplayNameConflict")]
+    [Trait("Category", "Unit")]
+    public async Task JoinRoomAsyncShouldGenerateSuffixForPlatformDisplayNameConflict()
+    {
+        var roomId = DefaultRoomId;
+        using var cts = new CancellationTokenSource();
+        var room = CreateRoomState(roomId);
+        room.AddUser(new ConnectionId("conn-existing"), new RoomUser("Alice"), 5);
+
+        var registeredUsers = new List<string>();
+        var roomManager = new Mock<IRoomManager>(MockBehavior.Strict);
+        roomManager.Setup(m => m.RegisterUserInRoom(
+                It.Is<RoomId>(id => id.Value == roomId),
+                It.Is<ConnectionId>(id => id.Value == "conn-1"),
+                It.IsAny<RoomUser>()))
+            .Returns((RoomId _, ConnectionId connectionId, RoomUser user) =>
+            {
+                registeredUsers.Add(user.Value);
+                if (string.Equals(user.Value, "Alice", StringComparison.Ordinal))
+                {
+                    throw new AddRoomUserException("Display name already in use. Choose another name.");
+                }
+
+                room.AddUser(connectionId, user, 5);
+                return room;
+            });
+
+        var proxy = new Mock<IClientProxy>(MockBehavior.Strict);
+        proxy.Setup(p => p.SendCoreAsync(
+                "UserJoined",
+                It.Is<object?[]>(args => MatchUserJoinedArgs(args, "Alice (2)", new[] { "Alice", "Alice (2)" })),
+                It.Is<CancellationToken>(token => token == cts.Token)))
+            .Returns(Task.CompletedTask);
+
+        var clients = new Mock<IHubCallerClients>(MockBehavior.Strict);
+        clients.Setup(c => c.GroupExcept(
+                It.Is<string>(group => group == roomId),
+                It.Is<IReadOnlyList<string>>(ids => ids.Count == 1 && ids[0] == "conn-1")))
+            .Returns(proxy.Object);
+
+        var groups = new Mock<IGroupManager>(MockBehavior.Strict);
+        groups.Setup(g => g.AddToGroupAsync(
+                It.Is<string>(conn => conn == "conn-1"),
+                It.Is<string>(group => group == roomId),
+                It.Is<CancellationToken>(token => token == cts.Token)))
+            .Returns(Task.CompletedTask);
+
+        var accessValidator = CreateAccessValidator(name: "Alice");
+        var items = new Dictionary<object, object?>();
+        using var hub = CreateHub(
+            roomManager.Object,
+            clients: clients.Object,
+            groups: groups.Object,
+            accessValidator: accessValidator,
+            items: items,
+            cancellationToken: cts.Token);
+
+        var result = await hub.JoinRoomAsync(roomId, "Alice");
+
+        result.Users.Should().Equal("Alice", "Alice (2)");
+        registeredUsers.Should().Equal("Alice", "Alice (2)");
+        items["displayName"].Should().Be("Alice (2)");
+    }
+
     [Fact(DisplayName = "JoinRoomAsyncShouldThrowWhenAddUserFails")]
     [Trait("Category", "Unit")]
     public async Task JoinRoomAsyncShouldThrowWhenAddUserFails()
@@ -661,25 +725,7 @@ public sealed class RoomHubTests
         clients ??= new Mock<IHubCallerClients>(MockBehavior.Strict).Object;
         groups ??= new Mock<IGroupManager>(MockBehavior.Strict).Object;
         items ??= new Dictionary<object, object?>();
-        if (accessValidator is null)
-        {
-            var platformAccess = new Mock<IPlatformAccessValidator>(MockBehavior.Strict);
-            var access = new PlatformAccessToken
-            {
-                RoomId = DefaultRoomId,
-                AssignmentId = "assignment",
-                Name = "",
-                Subject = "user",
-                Role = "participant",
-                ExpiresAtUnix = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds()
-            };
-            platformAccess.Setup(v => v.TryValidateRoomToken(
-                    It.IsAny<string?>(),
-                    It.IsAny<string>(),
-                    out access))
-                .Returns(true);
-            accessValidator = platformAccess.Object;
-        }
+        accessValidator ??= CreateAccessValidator(name: "");
         var logger = new Mock<ILogger<RoomHub>>().Object;
         var context = new Mock<HubCallerContext>(MockBehavior.Strict);
         context.SetupGet(c => c.ConnectionId).Returns("conn-1");
@@ -695,6 +741,26 @@ public sealed class RoomHubTests
         };
 
         return hub;
+    }
+
+    private static IPlatformAccessValidator CreateAccessValidator(string name)
+    {
+        var platformAccess = new Mock<IPlatformAccessValidator>(MockBehavior.Strict);
+        var access = new PlatformAccessToken
+        {
+            RoomId = DefaultRoomId,
+            AssignmentId = "assignment",
+            Name = name,
+            Subject = "user",
+            Role = "participant",
+            ExpiresAtUnix = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds()
+        };
+        platformAccess.Setup(v => v.TryValidateRoomToken(
+                It.IsAny<string?>(),
+                It.IsAny<string>(),
+                out access))
+            .Returns(true);
+        return platformAccess.Object;
     }
 
     private static CallCounter SetupTryGetRoom(string roomId, RoomState room, out Mock<IRoomManager> roomManager)
