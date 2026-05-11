@@ -31,6 +31,22 @@ public interface IRoomManager
         RoomUser roomUser);
 
     /// <summary>
+    /// Registers a platform-scoped user in the target room, replacing older connections for the same subject.
+    /// </summary>
+    /// <param name="roomId">The room identifier.</param>
+    /// <param name="connectionId">The user connection identifier.</param>
+    /// <param name="roomUser">The room user name.</param>
+    /// <param name="platformSubject">The stable platform subject identifier.</param>
+    /// <returns>The updated room state.</returns>
+    /// <exception cref="RoomNotFoundException">Thrown when the room cannot be found.</exception>
+    /// <exception cref="AddRoomUserException">Thrown when the user cannot be added to the room.</exception>
+    RoomState RegisterPlatformUserInRoom(
+        RoomId roomId,
+        ConnectionId connectionId,
+        RoomUser roomUser,
+        string platformSubject);
+
+    /// <summary>
     /// Gets room snapshots for the specified admin user.
     /// </summary>
     /// <param name="adminUser">The current admin user.</param>

@@ -151,6 +151,51 @@ public sealed class RoomState
         }
     }
 
+    /// <summary>
+    /// Adds or replaces a platform-scoped connected room user.
+    /// </summary>
+    /// <param name="connectionId">The current connection identifier.</param>
+    /// <param name="roomUser">The room user name.</param>
+    /// <param name="platformSubject">The stable platform subject identifier.</param>
+    /// <param name="maxUsers">The maximum number of users allowed in the room.</param>
+    /// <exception cref="AddRoomUserException">Thrown when the room is full or the name is already in use.</exception>
+    public void AddPlatformUser(ConnectionId connectionId, RoomUser roomUser, string platformSubject, int maxUsers)
+    {
+        if (string.IsNullOrWhiteSpace(platformSubject))
+        {
+            AddUser(connectionId, roomUser, maxUsers);
+            return;
+        }
+
+        lock (_addGuard)
+        {
+            var subject = platformSubject.Trim();
+            if (_platformConnections.TryGetValue(subject, out var existingConnectionId)
+                && existingConnectionId != connectionId)
+            {
+                _ = ImmutableInterlocked.TryRemove(ref _connectedUsers, existingConnectionId, out _);
+            }
+
+            var alreadyInRoom = HasUser(connectionId);
+            if (!alreadyInRoom && _connectedUsers.Count >= maxUsers)
+            {
+                throw new AddRoomUserException($"Room is full (max {maxUsers})");
+            }
+
+            if (IsRoomUserInUse(connectionId, roomUser))
+            {
+                throw new AddRoomUserException("Display name already in use. Choose another name.");
+            }
+
+            AddOrUpdateUser(connectionId, roomUser);
+            _ = ImmutableInterlocked.AddOrUpdate(
+                ref _platformConnections,
+                subject,
+                connectionId,
+                static (_, value) => value);
+        }
+    }
+
     private void AddOrUpdateUser(ConnectionId connectionId, RoomUser roomUser)
         => ImmutableInterlocked.AddOrUpdate(
             ref _connectedUsers,
@@ -175,7 +220,22 @@ public sealed class RoomState
     /// <param name="roomUser">The removed room user name.</param>
     /// <returns>True when removed; otherwise false.</returns>
     public bool RemoveUser(ConnectionId connectionId, out RoomUser roomUser)
-        => ImmutableInterlocked.TryRemove(ref _connectedUsers, connectionId, out roomUser);
+    {
+        var removed = ImmutableInterlocked.TryRemove(ref _connectedUsers, connectionId, out roomUser);
+        if (removed)
+        {
+            foreach (var entry in _platformConnections)
+            {
+                if (entry.Value == connectionId)
+                {
+                    _ = ImmutableInterlocked.TryRemove(ref _platformConnections, entry.Key, out _);
+                    break;
+                }
+            }
+        }
+
+        return removed;
+    }
 
     /// <summary>
     /// Updates the room text and bumps the version.
@@ -254,5 +314,5 @@ public sealed class RoomState
     private readonly Lock _addGuard = new();
     private readonly Lock _versionGuard = new();
     private ImmutableDictionary<ConnectionId, RoomUser> _connectedUsers = [];
+    private ImmutableDictionary<string, ConnectionId> _platformConnections = ImmutableDictionary.Create<string, ConnectionId>(StringComparer.OrdinalIgnoreCase);
 }
-

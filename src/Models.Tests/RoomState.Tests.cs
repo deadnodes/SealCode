@@ -86,6 +86,34 @@ public sealed class RoomStateTests
         action.Should().Throw<AddRoomUserException>();
     }
 
+    [Fact(DisplayName = "AddPlatformUserShouldReplacePreviousConnectionForSameSubject")]
+    [Trait("Category", "Unit")]
+    public void AddPlatformUserShouldReplacePreviousConnectionForSameSubject()
+    {
+        var state = CreateState();
+
+        state.AddPlatformUser(new ConnectionId("conn-1"), new RoomUser("Alice"), "platform-user", 5);
+        state.AddPlatformUser(new ConnectionId("conn-2"), new RoomUser("Alice"), "platform-user", 5);
+
+        state.ConnectedUserCount.Should().Be(1);
+        state.ConnectedUsers.Should().NotContainKey(new ConnectionId("conn-1"));
+        state.ConnectedUsers.Should().ContainKey(new ConnectionId("conn-2"));
+        state.ConnectedUsers[new ConnectionId("conn-2")].Should().Be(new RoomUser("Alice"));
+    }
+
+    [Fact(DisplayName = "AddPlatformUserShouldKeepNameConflictForDifferentSubjects")]
+    [Trait("Category", "Unit")]
+    public void AddPlatformUserShouldKeepNameConflictForDifferentSubjects()
+    {
+        var state = CreateState();
+
+        state.AddPlatformUser(new ConnectionId("conn-1"), new RoomUser("Alice"), "platform-user-1", 5);
+
+        var action = () => state.AddPlatformUser(new ConnectionId("conn-2"), new RoomUser("alice"), "platform-user-2", 5);
+
+        action.Should().Throw<AddRoomUserException>();
+    }
+
     [Fact(DisplayName = "IsRoomUserInUseShouldIgnoreSameConnection")]
     [Trait("Category", "Unit")]
     public void IsRoomUserInUseShouldIgnoreSameConnection()
@@ -353,4 +381,3 @@ public sealed class RoomStateTests
         public bool IsValid(RoomLanguage language) => false;
     }
 }
-

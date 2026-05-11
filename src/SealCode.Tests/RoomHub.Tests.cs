@@ -172,11 +172,12 @@ public sealed class RoomHubTests
 
         var registeredUsers = new List<string>();
         var roomManager = new Mock<IRoomManager>(MockBehavior.Strict);
-        roomManager.Setup(m => m.RegisterUserInRoom(
+        roomManager.Setup(m => m.RegisterPlatformUserInRoom(
                 It.Is<RoomId>(id => id.Value == roomId),
                 It.Is<ConnectionId>(id => id.Value == "conn-1"),
-                It.IsAny<RoomUser>()))
-            .Returns((RoomId _, ConnectionId connectionId, RoomUser user) =>
+                It.IsAny<RoomUser>(),
+                It.Is<string>(subject => subject == "platform-user")))
+            .Returns((RoomId _, ConnectionId connectionId, RoomUser user, string _) =>
             {
                 registeredUsers.Add(user.Value);
                 if (string.Equals(user.Value, "Alice", StringComparison.Ordinal))
@@ -208,7 +209,7 @@ public sealed class RoomHubTests
                 It.Is<CancellationToken>(token => token == cts.Token)))
             .Returns(Task.CompletedTask);
 
-        var accessValidator = CreateAccessValidator(name: "Alice");
+        var accessValidator = CreateAccessValidator(name: "Alice", subject: "platform-user");
         var items = new Dictionary<object, object?>();
         using var hub = CreateHub(
             roomManager.Object,
@@ -743,7 +744,7 @@ public sealed class RoomHubTests
         return hub;
     }
 
-    private static IPlatformAccessValidator CreateAccessValidator(string name)
+    private static IPlatformAccessValidator CreateAccessValidator(string name, string subject = "")
     {
         var platformAccess = new Mock<IPlatformAccessValidator>(MockBehavior.Strict);
         var access = new PlatformAccessToken
@@ -751,7 +752,7 @@ public sealed class RoomHubTests
             RoomId = DefaultRoomId,
             AssignmentId = "assignment",
             Name = name,
-            Subject = "user",
+            Subject = subject,
             Role = "participant",
             ExpiresAtUnix = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds()
         };

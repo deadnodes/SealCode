@@ -655,6 +655,11 @@ async function joinRoom() {
     const users = result.Users ?? result.users;
     const createdBy = result.CreatedBy ?? result.createdBy;
     const yjsState = result.YjsState ?? result.yjsState;
+    const joinedDisplayName = result.JoinedDisplayName ?? result.joinedDisplayName;
+    if (joinedDisplayName) {
+      displayName = joinedDisplayName;
+      displayNameInput.value = joinedDisplayName;
+    }
     roomNameEl.textContent = name;
     if (createdByEl) {
       createdByEl.textContent = createdBy || 'unknown';
@@ -858,6 +863,33 @@ joinBtn.addEventListener('click', async () => {
   }
 });
 
+async function joinWithPlatformToken() {
+  displayName = readPlatformDisplayName();
+  if (!displayName) return;
+  displayNameInput.value = displayName;
+  joinOverlay.classList.add('hidden');
+  await editorReady;
+  const started = await ensureConnectionStarted();
+  if (!started) {
+    setStatus('disconnected');
+    joinError.textContent = 'Failed to connect. Try again.';
+    joinError.classList.remove('hidden');
+    joinOverlay.classList.remove('hidden');
+    return;
+  }
+  setStatus('connected');
+  setLanguageReadOnly(true);
+  const joined = await joinRoom();
+  if (joined) {
+    setEditorReadOnly(false);
+    setLanguageReadOnly(false);
+    return;
+  }
+  setEditorReadOnly(true);
+  setLanguageReadOnly(true);
+  joinOverlay.classList.remove('hidden');
+}
+
 setStatus('disconnected');
 loadLanguages().finally(() => {
   setLanguageReadOnly(true);
@@ -866,8 +898,10 @@ initMonaco();
 
 const platformDisplayName = readPlatformDisplayName();
 if (platformDisplayName) {
-  displayNameInput.value = platformDisplayName;
   window.setTimeout(() => {
-    joinBtn.click();
+    joinWithPlatformToken().catch((err) => {
+      console.warn('Failed to join with platform token.', err);
+      joinOverlay.classList.remove('hidden');
+    });
   }, 0);
 }

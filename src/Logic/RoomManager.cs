@@ -46,6 +46,22 @@ public sealed class RoomManager : IRoomManager
     }
 
     /// <inheritdoc />
+    public RoomState RegisterPlatformUserInRoom(
+        RoomId roomId,
+        ConnectionId connectionId,
+        RoomUser roomUser,
+        string platformSubject)
+    {
+        if (!_registry.TryGetRoom(roomId, out var room))
+        {
+            throw new RoomNotFoundException();
+        }
+
+        room.AddPlatformUser(connectionId, roomUser, platformSubject, _maxUsersPerRoom);
+        return room;
+    }
+
+    /// <inheritdoc />
     public RoomView[] GetRoomsSnapshot(AdminUser adminUser)
         => [.. _registry.GetRoomsSnapshot()
             .Select(room => RoomView.From(room, adminUser))

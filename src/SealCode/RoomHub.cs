@@ -81,9 +81,10 @@ public sealed class RoomHub : Hub
 
         try
         {
+            var platformSubject = access.Subject.Trim();
             var platformDisplayName = !string.IsNullOrWhiteSpace(access.Name)
                 && string.Equals(displayName, access.Name.Trim(), StringComparison.OrdinalIgnoreCase);
-            room = RegisterUserInRoom(parsedRoomId, connectionId, displayName, platformDisplayName, out displayName);
+            room = RegisterUserInRoom(parsedRoomId, connectionId, displayName, platformSubject, platformDisplayName, out displayName);
         }
         catch (RoomNotFoundException ex)
         {
@@ -94,7 +95,7 @@ public sealed class RoomHub : Hub
             throw new HubException(ex.Message);
         }
 
-        var joinResult = JoinRoomResult.From(room);
+        var joinResult = JoinRoomResult.From(room, displayName);
 
         Context.Items["roomId"] = parsedRoomId.Value;
         Context.Items["displayName"] = displayName;
@@ -115,6 +116,7 @@ public sealed class RoomHub : Hub
         RoomId parsedRoomId,
         ConnectionId connectionId,
         string displayName,
+        string platformSubject,
         bool allowGeneratedSuffix,
         out string joinedDisplayName)
     {
@@ -122,10 +124,16 @@ public sealed class RoomHub : Hub
 
         try
         {
-            return _roomManager.RegisterUserInRoom(
-                parsedRoomId,
-                connectionId,
-                new RoomUser(displayName));
+            return string.IsNullOrWhiteSpace(platformSubject)
+                ? _roomManager.RegisterUserInRoom(
+                    parsedRoomId,
+                    connectionId,
+                    new RoomUser(displayName))
+                : _roomManager.RegisterPlatformUserInRoom(
+                    parsedRoomId,
+                    connectionId,
+                    new RoomUser(displayName),
+                    platformSubject);
         }
         catch (AddRoomUserException ex) when (allowGeneratedSuffix && IsDisplayNameConflict(ex))
         {
@@ -134,10 +142,16 @@ public sealed class RoomHub : Hub
                 var generatedDisplayName = $"{displayName} ({suffix})";
                 try
                 {
-                    var room = _roomManager.RegisterUserInRoom(
-                        parsedRoomId,
-                        connectionId,
-                        new RoomUser(generatedDisplayName));
+                    var room = string.IsNullOrWhiteSpace(platformSubject)
+                        ? _roomManager.RegisterUserInRoom(
+                            parsedRoomId,
+                            connectionId,
+                            new RoomUser(generatedDisplayName))
+                        : _roomManager.RegisterPlatformUserInRoom(
+                            parsedRoomId,
+                            connectionId,
+                            new RoomUser(generatedDisplayName),
+                            platformSubject);
                     joinedDisplayName = generatedDisplayName;
                     return room;
                 }
