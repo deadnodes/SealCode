@@ -64,10 +64,12 @@ jobs:
       - name: Test
         run: dotnet test src/SealCode.slnx --no-restore --configuration Release
 
-  deploy:
+  publish:
     needs: test
     if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
     runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.params.outputs.image_tag }}
     steps:
       - name: Resolve deploy params
         id: params
@@ -107,19 +109,49 @@ jobs:
             echo "flux_tag_key_path_prod=${flux_tag_key_path_prod}"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/sealcode:${{ steps.params.outputs.image_tag }}
+            ghcr.io/${{ github.repository_owner }}/sealcode:${{ github.ref_name }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: publish
+    if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Dispatch private pipeline
         env:
           GH_TOKEN: ${{ secrets.PIPELINES_REPO_TOKEN || secrets.FLUX_REPO_TOKEN }}
-          DEPLOY_TARGET: ${{ steps.params.outputs.deploy_target }}
-          IMAGE_TAG: ${{ steps.params.outputs.image_tag }}
-          EXTRA_TAGS: ${{ steps.params.outputs.extra_tags }}
-          FLUX_TAG_KEY_PATH_DEV: ${{ steps.params.outputs.flux_tag_key_path_dev }}
-          FLUX_TAG_KEY_PATH_PROD: ${{ steps.params.outputs.flux_tag_key_path_prod }}
+          DEPLOY_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_target || (github.ref_name == 'dev' && 'dev' || ((github.ref_name == 'main' || github.ref_name == 'master') && 'prod' || 'none')) }}
+          IMAGE_TAG: ${{ needs.publish.outputs.image_tag }}
+          EXTRA_TAGS: ${{ github.event_name == 'workflow_dispatch' && inputs.extra_tags || '' }}
+          FLUX_TAG_KEY_PATH_DEV: ${{ github.event_name == 'workflow_dispatch' && inputs.flux_tag_key_path_dev || 'spec.values.image.tag' }}
+          FLUX_TAG_KEY_PATH_PROD: ${{ github.event_name == 'workflow_dispatch' && inputs.flux_tag_key_path_prod || 'spec.values.image.tag' }}
         run: |
           set -euo pipefail
           if [[ -z "${GH_TOKEN}" ]]; then
-            echo "Missing PIPELINES_REPO_TOKEN or FLUX_REPO_TOKEN secret for dispatching DeadNodes/pipelines."
-            exit 1
+            echo "::warning::Missing PIPELINES_REPO_TOKEN or FLUX_REPO_TOKEN secret for dispatching DeadNodes/pipelines; image was published but Flux update was skipped."
+            exit 0
           fi
 
           gh workflow run deploy-external-repo.yml \
