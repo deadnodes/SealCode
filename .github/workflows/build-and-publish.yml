@@ -64,27 +64,77 @@ jobs:
       - name: Test
         run: dotnet test src/SealCode.slnx --no-restore --configuration Release
 
-  build:
+  deploy:
     needs: test
     if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
-    uses: DeadNodes/pipelines/.github/workflows/build-and-deploy.yml@main
-    with:
-      app_name: sealcode
-      image_name: ghcr.io/${{ github.repository_owner }}/sealcode
-      image_tag: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
-      extra_tags: ${{ github.event_name == 'workflow_dispatch' && inputs.extra_tags || '' }}
-      deploy_target: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_target || (github.ref_name == 'dev' && 'dev' || ((github.ref_name == 'main' || github.ref_name == 'master') && 'prod' || 'none')) }}
-      dockerfile: Dockerfile
-      build_context: .
-      flux_repo_dev: DeadNodes/flux
-      flux_repo_prod: DeadNodes/flux
-      flux_repo_branch_dev: ${{ vars.FLUX_REPO_BRANCH_DEV || 'main' }}
-      flux_repo_branch_prod: ${{ vars.FLUX_REPO_BRANCH_PROD || 'main' }}
-      flux_path_dev: ${{ vars.FLUX_PATH_DEV || 'clusters/platform-dev/custom-resources/lp-dev/sealcode.yaml' }}
-      flux_path_prod: ${{ vars.FLUX_PATH_PROD || 'clusters/ovh-vpc-k3s-prod/custom-resources/lp/sealcode.yaml' }}
-      flux_tag_key_path_dev: ${{ github.event_name == 'workflow_dispatch' && inputs.flux_tag_key_path_dev || vars.FLUX_TAG_KEY_PATH_DEV || 'spec.values.image.tag' }}
-      flux_tag_key_path_prod: ${{ github.event_name == 'workflow_dispatch' && inputs.flux_tag_key_path_prod || vars.FLUX_TAG_KEY_PATH_PROD || 'spec.values.image.tag' }}
-    secrets:
-      FLUX_APP_ID: ${{ secrets.FLUX_APP_ID }}
-      FLUX_APP_PRIVATE_KEY: ${{ secrets.FLUX_APP_PRIVATE_KEY }}
-      FLUX_REPO_TOKEN: ${{ secrets.FLUX_REPO_TOKEN }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve deploy params
+        id: params
+        env:
+          INPUT_DEPLOY_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_target || '' }}
+          INPUT_IMAGE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
+          INPUT_EXTRA_TAGS: ${{ github.event_name == 'workflow_dispatch' && inputs.extra_tags || '' }}
+          INPUT_FLUX_TAG_KEY_PATH_DEV: ${{ github.event_name == 'workflow_dispatch' && inputs.flux_tag_key_path_dev || '' }}
+          INPUT_FLUX_TAG_KEY_PATH_PROD: ${{ github.event_name == 'workflow_dispatch' && inputs.flux_tag_key_path_prod || '' }}
+        run: |
+          set -euo pipefail
+
+          deploy_target="${INPUT_DEPLOY_TARGET}"
+          if [[ -z "${deploy_target}" ]]; then
+            if [[ "${GITHUB_REF_NAME}" == "dev" ]]; then
+              deploy_target="dev"
+            elif [[ "${GITHUB_REF_NAME}" == "main" || "${GITHUB_REF_NAME}" == "master" ]]; then
+              deploy_target="prod"
+            else
+              deploy_target="none"
+            fi
+          fi
+
+          image_tag="${INPUT_IMAGE_TAG}"
+          if [[ -z "${image_tag}" ]]; then
+            image_tag="${GITHUB_REF_NAME}-${GITHUB_SHA::8}"
+          fi
+
+          flux_tag_key_path_dev="${INPUT_FLUX_TAG_KEY_PATH_DEV:-spec.values.image.tag}"
+          flux_tag_key_path_prod="${INPUT_FLUX_TAG_KEY_PATH_PROD:-spec.values.image.tag}"
+
+          {
+            echo "deploy_target=${deploy_target}"
+            echo "image_tag=${image_tag}"
+            echo "extra_tags=${INPUT_EXTRA_TAGS}"
+            echo "flux_tag_key_path_dev=${flux_tag_key_path_dev}"
+            echo "flux_tag_key_path_prod=${flux_tag_key_path_prod}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Dispatch private pipeline
+        env:
+          GH_TOKEN: ${{ secrets.PIPELINES_REPO_TOKEN || secrets.FLUX_REPO_TOKEN }}
+          DEPLOY_TARGET: ${{ steps.params.outputs.deploy_target }}
+          IMAGE_TAG: ${{ steps.params.outputs.image_tag }}
+          EXTRA_TAGS: ${{ steps.params.outputs.extra_tags }}
+          FLUX_TAG_KEY_PATH_DEV: ${{ steps.params.outputs.flux_tag_key_path_dev }}
+          FLUX_TAG_KEY_PATH_PROD: ${{ steps.params.outputs.flux_tag_key_path_prod }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN}" ]]; then
+            echo "Missing PIPELINES_REPO_TOKEN or FLUX_REPO_TOKEN secret for dispatching DeadNodes/pipelines."
+            exit 1
+          fi
+
+          gh workflow run deploy-external-repo.yml \
+            --repo DeadNodes/pipelines \
+            --ref main \
+            -f source_repository="${GITHUB_REPOSITORY}" \
+            -f source_ref="${GITHUB_SHA}" \
+            -f app_name="sealcode" \
+            -f image_name="ghcr.io/${GITHUB_REPOSITORY_OWNER}/sealcode" \
+            -f image_tag="${IMAGE_TAG}" \
+            -f extra_tags="${EXTRA_TAGS}" \
+            -f deploy_target="${DEPLOY_TARGET}" \
+            -f dockerfile="Dockerfile" \
+            -f build_context="." \
+            -f flux_path_dev="${{ vars.FLUX_PATH_DEV || 'clusters/platform-dev/custom-resources/lp-dev/sealcode.yaml' }}" \
+            -f flux_path_prod="${{ vars.FLUX_PATH_PROD || 'clusters/ovh-vpc-k3s-prod/custom-resources/lp/sealcode.yaml' }}" \
+            -f flux_tag_key_path_dev="${FLUX_TAG_KEY_PATH_DEV}" \
+            -f flux_tag_key_path_prod="${FLUX_TAG_KEY_PATH_PROD}"
