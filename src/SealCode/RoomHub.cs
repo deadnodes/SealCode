@@ -52,24 +52,36 @@ public sealed class RoomHub : Hub
     public async Task<JoinRoomResult> JoinRoomAsync(string roomId, string displayName)
     {
         var parsedRoomId = ParseRoomIdOrThrow(roomId);
-        string? token = null;
-        try
+
+        if (!_roomManager.TryGetRoom(parsedRoomId, out var existingRoom))
         {
-            token = Context.GetHttpContext()?.Request.Query["access_token"].ToString();
+            throw new HubException("Room not found");
         }
-        catch (InvalidOperationException)
+
+        PlatformAccessToken? access = null;
+        if (existingRoom.RequiresPlatformAccess)
         {
-            token = null;
-        }
-        if (!_accessValidator.TryValidateRoomToken(token, parsedRoomId.Value, out var access))
-        {
-            throw new HubException("Unauthorized");
+            string? token = null;
+            try
+            {
+                token = Context.GetHttpContext()?.Request.Query["access_token"].ToString();
+            }
+            catch (InvalidOperationException)
+            {
+                token = null;
+            }
+            if (!_accessValidator.TryValidateRoomToken(token, parsedRoomId.Value, out var platformAccess))
+            {
+                throw new HubException("Unauthorized");
+            }
+
+            access = platformAccess;
         }
 
         displayName = (displayName ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(displayName))
         {
-            displayName = access.Name;
+            displayName = access?.Name ?? string.Empty;
         }
         if (string.IsNullOrWhiteSpace(displayName))
         {
@@ -81,9 +93,10 @@ public sealed class RoomHub : Hub
 
         try
         {
-            var platformSubject = access.Subject.Trim();
-            var platformDisplayName = !string.IsNullOrWhiteSpace(access.Name)
-                && string.Equals(displayName, access.Name.Trim(), StringComparison.OrdinalIgnoreCase);
+            var platformSubject = access?.Subject.Trim() ?? string.Empty;
+            var platformName = access?.Name.Trim() ?? string.Empty;
+            var platformDisplayName = !string.IsNullOrWhiteSpace(platformName)
+                && string.Equals(displayName, platformName, StringComparison.OrdinalIgnoreCase);
             room = RegisterUserInRoom(parsedRoomId, connectionId, displayName, platformSubject, platformDisplayName, out displayName);
         }
         catch (RoomNotFoundException ex)

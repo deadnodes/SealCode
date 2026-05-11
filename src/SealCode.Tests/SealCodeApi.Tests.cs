@@ -7,6 +7,8 @@ using Microsoft.Extensions.Configuration;
 
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 
 using Models;
@@ -118,6 +120,61 @@ public sealed class SealCodeApiTests
 
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
         payload.Should().Be("Room not found");
+    }
+
+    [Fact(DisplayName = "GET /room/{id} allows standalone admin rooms without platform token")]
+    [Trait("Category", "Integration")]
+    public async Task GetRoomAllowsStandaloneAdminRoomsWithoutPlatformToken()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+
+        var cookie = await LoginAsAdminAsync(client);
+        var roomId = await CreateRoomAsync(client, cookie);
+
+        var response = await client.GetAsync($"/room/{roomId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("text/html");
+    }
+
+    [Fact(DisplayName = "GET /room/{id} requires token for platform rooms")]
+    [Trait("Category", "Integration")]
+    public async Task GetRoomRequiresTokenForPlatformRooms()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+
+        var roomId = await CreatePlatformRoomAsync(client);
+
+        var response = await client.GetAsync($"/room/{roomId}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact(DisplayName = "GET /room/{id} allows platform rooms with valid token")]
+    [Trait("Category", "Integration")]
+    public async Task GetRoomAllowsPlatformRoomsWithValidToken()
+    {
+        using var factory = CreateFactory();
+        using var client = factory.CreateClient(new WebApplicationFactoryClientOptions
+        {
+            AllowAutoRedirect = false
+        });
+
+        var roomId = await CreatePlatformRoomAsync(client);
+        var token = CreatePlatformRoomToken(roomId);
+
+        var response = await client.GetAsync($"/room/{roomId}?access_token={Uri.EscapeDataString(token)}");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("text/html");
     }
 
     [Fact(DisplayName = "SignalR /roomHub allows joining a room")]
@@ -338,6 +395,47 @@ public sealed class SealCodeApiTests
         return payload.GetProperty("RoomId").GetString()!;
     }
 
+    private static async Task<string> CreatePlatformRoomAsync(HttpClient client)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/platform/rooms")
+        {
+            Content = JsonContent.Create(new
+            {
+                ExternalId = "assignment-1",
+                Name = "Platform Room",
+                Language = "python",
+                InitialText = "print('hello')",
+                CreatedBy = "platform"
+            })
+        };
+        request.Headers.Add("X-Service-Token", PlatformServiceToken);
+
+        var response = await client.SendAsync(request);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return payload.GetProperty("roomId").GetString()!;
+    }
+
+    private static string CreatePlatformRoomToken(string roomId)
+    {
+        var payload = JsonSerializer.Serialize(new
+        {
+            room_id = roomId,
+            assignment_id = "assignment-1",
+            name = "Candidate",
+            sub = "anon:candidate",
+            role = "candidate",
+            exp = DateTimeOffset.UtcNow.AddMinutes(15).ToUnixTimeSeconds()
+        });
+        var body = Base64UrlEncode(Encoding.UTF8.GetBytes(payload));
+        var signature = Base64UrlEncode(HMACSHA256.HashData(Encoding.UTF8.GetBytes(PlatformSigningSecret), Encoding.ASCII.GetBytes(body)));
+        return $"{body}.{signature}";
+    }
+
+    private static string Base64UrlEncode(byte[] input)
+        => Convert.ToBase64String(input).TrimEnd('=').Replace('+', '-').Replace('/', '_');
+
     private static async Task<HubConnection> CreateConnectionAsync(WebApplicationFactory<Program> factory, Uri baseAddress, Cookie cookie)
     {
         var cookieContainer = new CookieContainer();
@@ -379,11 +477,17 @@ public sealed class SealCodeApiTests
                     ["AdminUsers:1:IsSuperAdmin"] = "true",
                     ["Languages:0"] = "csharp",
                     ["Languages:1"] = "sql",
-                    ["MaxUsersPerRoom"] = "3"
+                    ["Languages:2"] = "python",
+                    ["MaxUsersPerRoom"] = "3",
+                    ["PlatformServiceToken"] = PlatformServiceToken,
+                    ["PlatformSigningSecret"] = PlatformSigningSecret
                 };
 
                 config.AddInMemoryCollection(settings);
             });
         }
     }
+
+    private const string PlatformServiceToken = "test-service-token";
+    private const string PlatformSigningSecret = "test-signing-secret";
 }

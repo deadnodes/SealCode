@@ -60,8 +60,14 @@ public interface IRoomManager
     /// <param name="language">The room language.</param>
     /// <param name="adminUser">The admin creating the room.</param>
     /// <param name="initialText">The optional initial room text.</param>
+    /// <param name="accessMode">The room access mode.</param>
     /// <returns>The created room state.</returns>
-    RoomState CreateRoom(RoomName name, RoomLanguage language, AdminUser adminUser, RoomText? initialText = null);
+    RoomState CreateRoom(
+        RoomName name,
+        RoomLanguage language,
+        AdminUser adminUser,
+        RoomText? initialText = null,
+        RoomAccessMode accessMode = RoomAccessMode.Standalone);
 
     /// <summary>
     /// Deletes a room with admin authorization checks.

@@ -71,27 +71,27 @@ public sealed class RoomHubTests
     [Trait("Category", "Unit")]
     public async Task JoinRoomAsyncShouldThrowWhenRoomIsNotFound()
     {
+        RoomState missing = null!;
         var roomManager = new Mock<IRoomManager>(MockBehavior.Strict);
-        var registerUserCalls = 0;
-        roomManager.Setup(m => m.RegisterUserInRoom(
-                It.IsAny<RoomId>(),
-                It.IsAny<ConnectionId>(),
-                It.IsAny<RoomUser>()))
-            .Callback<RoomId, ConnectionId, RoomUser>((_, _, _) => registerUserCalls++)
-            .Throws(new RoomNotFoundException());
+        var tryGetRoomCalls = 0;
+        roomManager.Setup(m => m.TryGetRoom(It.IsAny<RoomId>(), out missing))
+            .Callback(() => tryGetRoomCalls++)
+            .Returns(false);
         using var hub = CreateHub(roomManager.Object);
 
         Func<Task> action = () => hub.JoinRoomAsync(DefaultRoomId, "Alice");
 
         await action.Should().ThrowAsync<HubException>();
-        registerUserCalls.Should().Be(1);
+        tryGetRoomCalls.Should().Be(1);
     }
 
     [Fact(DisplayName = "JoinRoomAsyncShouldThrowWhenRoomUserIsEmpty")]
     [Trait("Category", "Unit")]
     public async Task JoinRoomAsyncShouldThrowWhenRoomUserIsEmpty()
     {
-        using var hub = CreateHub();
+        var room = CreateRoomState(DefaultRoomId);
+        _ = SetupTryGetRoom(DefaultRoomId, room, out var roomManager);
+        using var hub = CreateHub(roomManager.Object);
 
         Func<Task> action = () => hub.JoinRoomAsync(DefaultRoomId, " ");
 
@@ -108,6 +108,8 @@ public sealed class RoomHubTests
         room.AddUser(new ConnectionId("conn-1"), new RoomUser("Alice"), 5);
         room.AddUser(new ConnectionId("conn-2"), new RoomUser("Bob"), 5);
         var roomManager = new Mock<IRoomManager>(MockBehavior.Strict);
+        roomManager.Setup(m => m.TryGetRoom(It.Is<RoomId>(id => id.Value == roomId), out room))
+            .Returns(true);
         var registerUserCalls = 0;
         roomManager.Setup(m => m.RegisterUserInRoom(
                 It.Is<RoomId>(id => id.Value == roomId),
@@ -167,11 +169,13 @@ public sealed class RoomHubTests
     {
         var roomId = DefaultRoomId;
         using var cts = new CancellationTokenSource();
-        var room = CreateRoomState(roomId);
+        var room = CreateRoomState(roomId, accessMode: RoomAccessMode.Platform);
         room.AddUser(new ConnectionId("conn-existing"), new RoomUser("Alice"), 5);
 
         var registeredUsers = new List<string>();
         var roomManager = new Mock<IRoomManager>(MockBehavior.Strict);
+        roomManager.Setup(m => m.TryGetRoom(It.Is<RoomId>(id => id.Value == roomId), out room))
+            .Returns(true);
         roomManager.Setup(m => m.RegisterPlatformUserInRoom(
                 It.Is<RoomId>(id => id.Value == roomId),
                 It.Is<ConnectionId>(id => id.Value == "conn-1"),
@@ -230,7 +234,10 @@ public sealed class RoomHubTests
     [Trait("Category", "Unit")]
     public async Task JoinRoomAsyncShouldThrowWhenAddUserFails()
     {
+        var room = CreateRoomState(DefaultRoomId);
         var roomManager = new Mock<IRoomManager>(MockBehavior.Strict);
+        roomManager.Setup(m => m.TryGetRoom(It.Is<RoomId>(id => id.Value == DefaultRoomId), out room))
+            .Returns(true);
         var registerUserCalls = 0;
         roomManager.Setup(m => m.RegisterUserInRoom(
                 It.IsAny<RoomId>(),
@@ -779,7 +786,10 @@ public sealed class RoomHubTests
         public int Count { get; set; }
     }
 
-    private static RoomState CreateRoomState(string roomId, string text = "")
+    private static RoomState CreateRoomState(
+        string roomId,
+        string text = "",
+        RoomAccessMode accessMode = RoomAccessMode.Standalone)
         => new(
             new RoomId(roomId),
             new RoomName("Room"),
@@ -787,5 +797,6 @@ public sealed class RoomHubTests
             new RoomText(text),
             new RoomVersion(1),
             DateTimeOffset.UtcNow,
-            new AdminUser("admin", true));
+            new AdminUser("admin", true),
+            accessMode: accessMode);
 }

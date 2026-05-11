@@ -188,7 +188,9 @@ app.MapPost("/platform/rooms",
         return Results.BadRequest(new { error = "externalId and name are required" });
     }
 
-    if (RoomId.TryParse(payload.CurrentRoomId, out var currentRoomId) && registry.TryGetRoom(currentRoomId, out var currentRoom))
+    if (RoomId.TryParse(payload.CurrentRoomId, out var currentRoomId)
+        && registry.TryGetRoom(currentRoomId, out var currentRoom)
+        && currentRoom.RequiresPlatformAccess)
     {
         return Results.Json(new
         {
@@ -205,7 +207,8 @@ app.MapPost("/platform/rooms",
         new RoomName(payload.Name),
         language,
         createdBy,
-        new RoomText(payload.InitialText ?? string.Empty));
+        new RoomText(payload.InitialText ?? string.Empty),
+        RoomAccessMode.Platform);
 
     return Results.Json(new
     {
@@ -222,15 +225,18 @@ app.MapGet("/room/{roomId:ShortGuid}", (HttpContext context,
                                          IWebHostEnvironment env,
                                          IPlatformAccessValidator accessValidator) =>
 {
-    if (!registry.TryGetRoom(roomId, out _))
+    if (!registry.TryGetRoom(roomId, out var room))
     {
         return Results.NotFound("Room not found");
     }
 
-    var token = context.Request.Query["access_token"].ToString();
-    if (!accessValidator.TryValidateRoomToken(token, roomId.Value, out _))
+    if (room.RequiresPlatformAccess)
     {
-        return Results.Unauthorized();
+        var token = context.Request.Query["access_token"].ToString();
+        if (!accessValidator.TryValidateRoomToken(token, roomId.Value, out _))
+        {
+            return Results.Unauthorized();
+        }
     }
 
     var path = Path.Combine(env.WebRootPath, "room.html");

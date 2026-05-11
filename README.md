@@ -31,10 +31,17 @@ dotnet run --project src/SealCode/SealCode.csproj
 **Join a Room**
 Open the room link in a browser and enter a display name.
 
+**Access modes**
+
+- Standalone rooms are created from the admin UI/API (`/admin/rooms`). They can be opened directly at `/room/{roomId}` and participants join by entering a display name.
+- Platform rooms are created by the platform BFF (`/platform/rooms`). They require a signed `access_token` on `/room/{roomId}` and `/roomHub`, auto-join from the token payload, and restore sessions by stable platform subject.
+- Use standalone rooms when running SealCode as an independent app. Use platform rooms for interview code/playbook sessions that must be scoped and authorized by DeadNodes.
+
 **Configuration**
 - `src/SealCode/appsettings.json`
 - `AdminUsers`: list of admin name/password pairs. Include `IsSuperAdmin` to allow deleting rooms created by other admins.
-- `Languages`: list of language identifiers supported by Monaco Editor (example: `csharp`, `sql`).
+- `Languages`: list of language identifiers supported by Monaco Editor (example: `csharp`, `sql`, `javascript`, `python`, `scala`, `rust`).
+  SealCode does not define local syntax grammars for built-in Monaco languages. The configured ids are passed to Monaco via `monaco.editor.setModelLanguage`, and Monaco provides tokenization/highlighting for those languages.
 - `MaxUsersPerRoom`: integer from 1 to 5.
 
 **Endpoints**

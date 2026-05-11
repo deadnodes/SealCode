@@ -29,8 +29,28 @@ public sealed class RoomStateTests
         state.LastUpdatedUtc.Should().Be(updatedUtc);
         state.CreatedBy.Should().Be(createdBy);
         state.YjsState.Should().Equal(yjsState);
+        state.AccessMode.Should().Be(RoomAccessMode.Standalone);
+        state.RequiresPlatformAccess.Should().BeFalse();
         state.ConnectedUserCount.Should().Be(0);
         state.ConnectedUsers.Should().BeEmpty();
+    }
+
+    [Fact(DisplayName = "CtorShouldSetPlatformAccessMode")]
+    [Trait("Category", "Unit")]
+    public void CtorShouldSetPlatformAccessMode()
+    {
+        var state = new RoomState(
+            RoomId.New(),
+            new RoomName("Room"),
+            new RoomLanguage("csharp"),
+            new RoomText("text"),
+            new RoomVersion(1),
+            DateTimeOffset.UtcNow,
+            new AdminUser("admin"),
+            accessMode: RoomAccessMode.Platform);
+
+        state.AccessMode.Should().Be(RoomAccessMode.Platform);
+        state.RequiresPlatformAccess.Should().BeTrue();
     }
 
     [Fact(DisplayName = "CtorShouldUseEmptyYjsStateWhenNull")]

@@ -31,7 +31,12 @@ public sealed class RoomRegistry : IRoomRegistry
     public bool TryGetRoom(RoomId roomId, out RoomState room) => _rooms.TryGetValue(roomId, out room!);
 
     /// <inheritdoc />
-    public RoomState CreateRoom(RoomName name, RoomLanguage language, AdminUser createdBy, RoomText? initialText = null)
+    public RoomState CreateRoom(
+        RoomName name,
+        RoomLanguage language,
+        AdminUser createdBy,
+        RoomText? initialText = null,
+        RoomAccessMode accessMode = RoomAccessMode.Standalone)
     {
         var room = new RoomState(
             RoomId.New(),
@@ -40,7 +45,8 @@ public sealed class RoomRegistry : IRoomRegistry
             initialText ?? new RoomText(string.Empty),
             new RoomVersion(1),
             DateTimeOffset.UtcNow,
-            createdBy);
+            createdBy,
+            accessMode: accessMode);
 
         _ = ImmutableInterlocked.TryAdd(ref _rooms, room.RoomId, room);
 

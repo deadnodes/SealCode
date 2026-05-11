@@ -20,6 +20,7 @@ public sealed class RoomState
     /// <param name="lastUpdatedUtc">The last updated timestamp in UTC.</param>
     /// <param name="createdBy">The admin that created the room.</param>
     /// <param name="yjsState">The serialized Yjs document state (full update).</param>
+    /// <param name="accessMode">The room access mode.</param>
     public RoomState(
         RoomId roomId,
         RoomName name,
@@ -28,7 +29,8 @@ public sealed class RoomState
         RoomVersion version,
         DateTimeOffset lastUpdatedUtc,
         AdminUser createdBy,
-        byte[]? yjsState = null)
+        byte[]? yjsState = null,
+        RoomAccessMode accessMode = RoomAccessMode.Standalone)
     {
         RoomId = roomId;
         Name = name;
@@ -38,6 +40,7 @@ public sealed class RoomState
         LastUpdatedUtc = lastUpdatedUtc;
         CreatedBy = createdBy;
         YjsState = yjsState ?? [];
+        AccessMode = accessMode;
     }
 
     /// <summary>
@@ -81,6 +84,16 @@ public sealed class RoomState
     /// Gets the admin that created the room.
     /// </summary>
     public AdminUser CreatedBy { get; }
+
+    /// <summary>
+    /// Gets the room access mode.
+    /// </summary>
+    public RoomAccessMode AccessMode { get; }
+
+    /// <summary>
+    /// Gets a value indicating whether the room requires a signed platform access token.
+    /// </summary>
+    public bool RequiresPlatformAccess => AccessMode == RoomAccessMode.Platform;
 
     /// <summary>
     /// Determines whether the provided admin user created this room.

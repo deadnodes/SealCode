@@ -68,8 +68,13 @@ public sealed class RoomManager : IRoomManager
             .OrderBy(room => room.Name.Value, StringComparer.OrdinalIgnoreCase)];
 
     /// <inheritdoc />
-    public RoomState CreateRoom(RoomName name, RoomLanguage language, AdminUser adminUser, RoomText? initialText = null)
-        => _registry.CreateRoom(name, language, adminUser, initialText);
+    public RoomState CreateRoom(
+        RoomName name,
+        RoomLanguage language,
+        AdminUser adminUser,
+        RoomText? initialText = null,
+        RoomAccessMode accessMode = RoomAccessMode.Standalone)
+        => _registry.CreateRoom(name, language, adminUser, initialText, accessMode);
 
     /// <inheritdoc />
     public async Task<RoomDeletionResult> DeleteRoomAsync(RoomId roomId, AdminUser adminUser, CancellationToken cancellationToken)
