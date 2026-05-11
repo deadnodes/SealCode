@@ -16,6 +16,8 @@ const joinError = document.getElementById('joinError');
 
 const pathSegments = new URL(window.location.href).pathname.split('/').filter(Boolean);
 const roomId = pathSegments[pathSegments.length - 1] ?? '';
+const urlParams = new URL(window.location.href).searchParams;
+const platformAccessToken = urlParams.get('access_token') || '';
 let displayName = '';
 let currentVersion = 0;
 let isApplyingRemoteUpdate = false;
@@ -52,7 +54,7 @@ let rejoinRetryAttempt = 0;
 const rejoinRetryDelaysMs = [500, 1000, 2000, 5000, 10000];
 
 const connection = new signalR.HubConnectionBuilder()
-  .withUrl('/roomHub')
+  .withUrl(`/roomHub${platformAccessToken ? `?access_token=${encodeURIComponent(platformAccessToken)}` : ''}`)
   .withAutomaticReconnect({
     nextRetryDelayInMilliseconds: () => (navigator.onLine ? 3000 : 2000)
   })
@@ -69,6 +71,19 @@ window.__debugYjsSend = () => {
 
 function setStatus(status) {
   connectionStatusEl.textContent = status;
+}
+
+function readPlatformDisplayName() {
+  if (!platformAccessToken) return '';
+  const body = platformAccessToken.split('.')[0] || '';
+  if (!body) return '';
+  try {
+    const padded = body.replace(/-/g, '+').replace(/_/g, '/').padEnd(body.length + ((4 - body.length % 4) % 4), '=');
+    const payload = JSON.parse(atob(padded));
+    return String(payload.name || '').trim();
+  } catch {
+    return '';
+  }
 }
 
 function clearRejoinRetryTimer() {
@@ -848,3 +863,11 @@ loadLanguages().finally(() => {
   setLanguageReadOnly(true);
 });
 initMonaco();
+
+const platformDisplayName = readPlatformDisplayName();
+if (platformDisplayName) {
+  displayNameInput.value = platformDisplayName;
+  window.setTimeout(() => {
+    joinBtn.click();
+  }, 0);
+}

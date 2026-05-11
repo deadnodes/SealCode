@@ -52,8 +52,8 @@ public sealed class RoomManager : IRoomManager
             .OrderBy(room => room.Name.Value, StringComparer.OrdinalIgnoreCase)];
 
     /// <inheritdoc />
-    public RoomState CreateRoom(RoomName name, RoomLanguage language, AdminUser adminUser)
-        => _registry.CreateRoom(name, language, adminUser);
+    public RoomState CreateRoom(RoomName name, RoomLanguage language, AdminUser adminUser, RoomText? initialText = null)
+        => _registry.CreateRoom(name, language, adminUser, initialText);
 
     /// <inheritdoc />
     public async Task<RoomDeletionResult> DeleteRoomAsync(RoomId roomId, AdminUser adminUser, CancellationToken cancellationToken)
@@ -78,4 +78,3 @@ public sealed class RoomManager : IRoomManager
     private readonly IRoomRegistry _registry;
     private readonly int _maxUsersPerRoom;
 }
-

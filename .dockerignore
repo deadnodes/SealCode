@@ -1,0 +1,12 @@
+.git
+.github
+**/bin
+**/obj
+**/.vs
+**/*.user
+**/*.suo
+TestResults
+*.trx
+README.md
+Room.png
+UIColors.png

@@ -43,8 +43,9 @@ public interface IRoomManager
     /// <param name="name">The room name.</param>
     /// <param name="language">The room language.</param>
     /// <param name="adminUser">The admin creating the room.</param>
+    /// <param name="initialText">The optional initial room text.</param>
     /// <returns>The created room state.</returns>
-    RoomState CreateRoom(RoomName name, RoomLanguage language, AdminUser adminUser);
+    RoomState CreateRoom(RoomName name, RoomLanguage language, AdminUser adminUser, RoomText? initialText = null);
 
     /// <summary>
     /// Deletes a room with admin authorization checks.
@@ -55,4 +56,3 @@ public interface IRoomManager
     /// <returns>The deletion result.</returns>
     Task<RoomDeletionResult> DeleteRoomAsync(RoomId roomId, AdminUser adminUser, CancellationToken cancellationToken);
 }
-

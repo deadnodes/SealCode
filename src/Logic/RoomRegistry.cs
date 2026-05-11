@@ -31,13 +31,13 @@ public sealed class RoomRegistry : IRoomRegistry
     public bool TryGetRoom(RoomId roomId, out RoomState room) => _rooms.TryGetValue(roomId, out room!);
 
     /// <inheritdoc />
-    public RoomState CreateRoom(RoomName name, RoomLanguage language, AdminUser createdBy)
+    public RoomState CreateRoom(RoomName name, RoomLanguage language, AdminUser createdBy, RoomText? initialText = null)
     {
         var room = new RoomState(
             RoomId.New(),
             name,
             language,
-            new RoomText(string.Empty),
+            initialText ?? new RoomText(string.Empty),
             new RoomVersion(1),
             DateTimeOffset.UtcNow,
             createdBy);

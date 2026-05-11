@@ -44,6 +44,7 @@ builder.Services.Configure<RouteOptions>(options => options.ConstraintMap["Short
 builder.Services.AddSingleton<IRoomRegistry, RoomRegistry>();
 builder.Services.AddSingleton<IRoomNotifier, SignalRRoomNotifier>();
 builder.Services.AddSingleton<IRoomManager, RoomManager>();
+builder.Services.AddSingleton<IPlatformAccessValidator, PlatformAccessValidator>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped(sp =>
 {
@@ -169,11 +170,67 @@ app.MapDelete("/admin/rooms/{roomId:ShortGuid}",
     };
 });
 
-app.MapGet("/room/{roomId:ShortGuid}", (RoomId roomId, IRoomRegistry registry, IWebHostEnvironment env) =>
+app.MapPost("/platform/rooms",
+            async (HttpContext context,
+                   IRoomManager roomManager,
+                   IRoomRegistry registry,
+                   IPlatformAccessValidator accessValidator,
+                   CancellationToken cancellationToken) =>
+{
+    if (!accessValidator.IsServiceRequest(context))
+    {
+        return Results.Unauthorized();
+    }
+
+    var payload = await context.Request.ReadFromJsonAsync<PlatformRoomRequest>(cancellationToken).ConfigureAwait(false);
+    if (payload is null || string.IsNullOrWhiteSpace(payload.ExternalId) || string.IsNullOrWhiteSpace(payload.Name))
+    {
+        return Results.BadRequest(new { error = "externalId and name are required" });
+    }
+
+    if (RoomId.TryParse(payload.CurrentRoomId, out var currentRoomId) && registry.TryGetRoom(currentRoomId, out var currentRoom))
+    {
+        return Results.Json(new
+        {
+            roomId = currentRoom.RoomId.Value,
+            name = currentRoom.Name.Value,
+            language = currentRoom.Language.Value,
+            reused = true
+        });
+    }
+
+    var language = new RoomLanguage(string.IsNullOrWhiteSpace(payload.Language) ? "javascript" : payload.Language);
+    var createdBy = new AdminUser(string.IsNullOrWhiteSpace(payload.CreatedBy) ? "platform" : payload.CreatedBy);
+    var room = roomManager.CreateRoom(
+        new RoomName(payload.Name),
+        language,
+        createdBy,
+        new RoomText(payload.InitialText ?? string.Empty));
+
+    return Results.Json(new
+    {
+        roomId = room.RoomId.Value,
+        name = room.Name.Value,
+        language = room.Language.Value,
+        reused = false
+    });
+});
+
+app.MapGet("/room/{roomId:ShortGuid}", (HttpContext context,
+                                         RoomId roomId,
+                                         IRoomRegistry registry,
+                                         IWebHostEnvironment env,
+                                         IPlatformAccessValidator accessValidator) =>
 {
     if (!registry.TryGetRoom(roomId, out _))
     {
         return Results.NotFound("Room not found");
+    }
+
+    var token = context.Request.Query["access_token"].ToString();
+    if (!accessValidator.TryValidateRoomToken(token, roomId.Value, out _))
+    {
+        return Results.Unauthorized();
     }
 
     var path = Path.Combine(env.WebRootPath, "room.html");
@@ -185,3 +242,11 @@ app.MapGet("/health", () => Results.Ok("ok"));
 app.MapHub<RoomHub>("/roomHub");
 
 app.Run();
+
+internal sealed record PlatformRoomRequest(
+    string? ExternalId,
+    string? CurrentRoomId,
+    string? Name,
+    string? Language,
+    string? InitialText,
+    string? CreatedBy);

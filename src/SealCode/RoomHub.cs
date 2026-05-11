@@ -21,19 +21,23 @@ public sealed class RoomHub : Hub
     /// </summary>
     /// <param name="roomManager">The room manager.</param>
     /// <param name="languageValidator">The language validator.</param>
+    /// <param name="accessValidator">The platform access validator.</param>
     /// <param name="logger">The logger.</param>
     /// <exception cref="ArgumentNullException">Thrown when a dependency is null.</exception>
     public RoomHub(
         IRoomManager roomManager,
         ILanguageValidator languageValidator,
+        IPlatformAccessValidator accessValidator,
         ILogger<RoomHub> logger)
     {
         ArgumentNullException.ThrowIfNull(roomManager);
         ArgumentNullException.ThrowIfNull(languageValidator);
+        ArgumentNullException.ThrowIfNull(accessValidator);
         ArgumentNullException.ThrowIfNull(logger);
 
         _roomManager = roomManager;
         _languageValidator = languageValidator;
+        _accessValidator = accessValidator;
         _logger = logger;
     }
 
@@ -48,8 +52,25 @@ public sealed class RoomHub : Hub
     public async Task<JoinRoomResult> JoinRoomAsync(string roomId, string displayName)
     {
         var parsedRoomId = ParseRoomIdOrThrow(roomId);
+        string? token = null;
+        try
+        {
+            token = Context.GetHttpContext()?.Request.Query["access_token"].ToString();
+        }
+        catch (InvalidOperationException)
+        {
+            token = null;
+        }
+        if (!_accessValidator.TryValidateRoomToken(token, parsedRoomId.Value, out var access))
+        {
+            throw new HubException("Unauthorized");
+        }
 
         displayName = (displayName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(displayName))
+        {
+            displayName = access.Name;
+        }
         if (string.IsNullOrWhiteSpace(displayName))
         {
             throw new HubException("Display name required");
@@ -386,6 +407,6 @@ public sealed class RoomHub : Hub
 
     private readonly IRoomManager _roomManager;
     private readonly ILanguageValidator _languageValidator;
+    private readonly IPlatformAccessValidator _accessValidator;
     private readonly ILogger<RoomHub> _logger;
 }
-

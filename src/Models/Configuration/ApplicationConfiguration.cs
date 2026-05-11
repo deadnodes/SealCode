@@ -26,6 +26,16 @@ public sealed class ApplicationConfiguration
     /// </summary>
     [Range(1, 5)]
     public int MaxUsersPerRoom { get; init; }
+
+    /// <summary>
+    /// Gets the platform service token used by the BFF to create interview rooms.
+    /// </summary>
+    public string? PlatformServiceToken { get; init; }
+
+    /// <summary>
+    /// Gets the shared HMAC secret used to validate platform-scoped room access tokens.
+    /// </summary>
+    public string? PlatformSigningSecret { get; init; }
 }
 
 /// <summary>

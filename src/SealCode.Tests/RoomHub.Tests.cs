@@ -2,6 +2,7 @@ using Abstractions;
 
 using FluentAssertions;
 
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 
@@ -21,9 +22,10 @@ public sealed class RoomHubTests
     public void CtorShouldThrowWhenRoomManagerIsNull()
     {
         var validator = new Mock<ILanguageValidator>(MockBehavior.Strict).Object;
+        var accessValidator = new Mock<IPlatformAccessValidator>(MockBehavior.Strict).Object;
         var logger = new Mock<ILogger<RoomHub>>(MockBehavior.Strict).Object;
 
-        var action = () => new RoomHub(null!, validator, logger);
+        var action = () => new RoomHub(null!, validator, accessValidator, logger);
 
         action.Should().Throw<ArgumentNullException>();
     }
@@ -33,9 +35,10 @@ public sealed class RoomHubTests
     public void CtorShouldThrowWhenLanguageValidatorIsNull()
     {
         var roomManager = new Mock<IRoomManager>(MockBehavior.Strict).Object;
+        var accessValidator = new Mock<IPlatformAccessValidator>(MockBehavior.Strict).Object;
         var logger = new Mock<ILogger<RoomHub>>().Object;
 
-        var action = () => new RoomHub(roomManager, null!, logger);
+        var action = () => new RoomHub(roomManager, null!, accessValidator, logger);
 
         action.Should().Throw<ArgumentNullException>();
     }
@@ -46,8 +49,9 @@ public sealed class RoomHubTests
     {
         var roomManager = new Mock<IRoomManager>(MockBehavior.Strict).Object;
         var validator = new Mock<ILanguageValidator>(MockBehavior.Strict).Object;
+        var accessValidator = new Mock<IPlatformAccessValidator>(MockBehavior.Strict).Object;
 
-        var action = () => new RoomHub(roomManager, validator, null!);
+        var action = () => new RoomHub(roomManager, validator, accessValidator, null!);
 
         action.Should().Throw<ArgumentNullException>();
     }
@@ -648,6 +652,7 @@ public sealed class RoomHubTests
         ILanguageValidator? languageValidator = null,
         IHubCallerClients? clients = null,
         IGroupManager? groups = null,
+        IPlatformAccessValidator? accessValidator = null,
         IDictionary<object, object?>? items = null,
         CancellationToken cancellationToken = default)
     {
@@ -656,13 +661,33 @@ public sealed class RoomHubTests
         clients ??= new Mock<IHubCallerClients>(MockBehavior.Strict).Object;
         groups ??= new Mock<IGroupManager>(MockBehavior.Strict).Object;
         items ??= new Dictionary<object, object?>();
+        if (accessValidator is null)
+        {
+            var platformAccess = new Mock<IPlatformAccessValidator>(MockBehavior.Strict);
+            var access = new PlatformAccessToken
+            {
+                RoomId = DefaultRoomId,
+                AssignmentId = "assignment",
+                Name = "",
+                Subject = "user",
+                Role = "participant",
+                ExpiresAtUnix = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds()
+            };
+            platformAccess.Setup(v => v.TryValidateRoomToken(
+                    It.IsAny<string?>(),
+                    It.IsAny<string>(),
+                    out access))
+                .Returns(true);
+            accessValidator = platformAccess.Object;
+        }
         var logger = new Mock<ILogger<RoomHub>>().Object;
         var context = new Mock<HubCallerContext>(MockBehavior.Strict);
         context.SetupGet(c => c.ConnectionId).Returns("conn-1");
         context.SetupGet(c => c.ConnectionAborted).Returns(cancellationToken);
         context.SetupGet(c => c.Items).Returns(items);
+        context.SetupGet(c => c.Features).Returns(new FeatureCollection());
 
-        var hub = new RoomHub(roomManager, languageValidator, logger)
+        var hub = new RoomHub(roomManager, languageValidator, accessValidator, logger)
         {
             Context = context.Object,
             Clients = clients,
@@ -697,5 +722,3 @@ public sealed class RoomHubTests
             DateTimeOffset.UtcNow,
             new AdminUser("admin", true));
 }
-
-
