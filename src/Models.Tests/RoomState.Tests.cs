@@ -297,6 +297,30 @@ public sealed class RoomStateTests
         state.LastUpdatedUtc.Should().Be(updatedUtc);
     }
 
+    [Fact(DisplayName = "UpdateYjsIncrementalShouldInvalidateStoredFullState")]
+    [Trait("Category", "Unit")]
+    public void UpdateYjsIncrementalShouldInvalidateStoredFullState()
+    {
+        var updatedUtc = new DateTimeOffset(2024, 1, 2, 0, 0, 0, TimeSpan.Zero);
+        var state = new RoomState(
+            RoomId.New(),
+            new RoomName("Room"),
+            new RoomLanguage("csharp"),
+            new RoomText("hello"),
+            new RoomVersion(1),
+            new DateTimeOffset(2024, 1, 1, 0, 0, 0, TimeSpan.Zero),
+            new AdminUser("admin"),
+            [1, 2]);
+
+        var version = state.UpdateYjsIncremental(new RoomText("updated"), updatedUtc);
+
+        version.Value.Should().Be(2);
+        state.Version.Value.Should().Be(2);
+        state.Text.Value.Should().Be("updated");
+        state.YjsState.Should().BeEmpty();
+        state.LastUpdatedUtc.Should().Be(updatedUtc);
+    }
+
     [Fact(DisplayName = "TryUpdateYjsStateShouldThrowWhenStateIsNull")]
     [Trait("Category", "Unit")]
     public void TryUpdateYjsStateShouldThrowWhenStateIsNull()

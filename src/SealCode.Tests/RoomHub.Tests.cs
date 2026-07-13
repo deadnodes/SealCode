@@ -361,6 +361,44 @@ public sealed class RoomHubTests
         yjsUpdatedCalls.Should().Be(1);
     }
 
+    [Fact(DisplayName = "UpdateYjsAsyncShouldBroadcastIncrementalUpdateWithoutFullState")]
+    [Trait("Category", "Unit")]
+    public async Task UpdateYjsAsyncShouldBroadcastIncrementalUpdateWithoutFullState()
+    {
+        var roomId = DefaultRoomId;
+        using var cts = new CancellationTokenSource();
+        var updateBase64 = Convert.ToBase64String([1, 2]);
+        var room = CreateRoomState(roomId, text: "before", yjsState: [9, 9, 9]);
+        room.AddUser(new ConnectionId("conn-1"), new RoomUser("Alice"), 5);
+        var tryGetRoomCounter = SetupTryGetRoom(roomId, room, out var roomManager);
+
+        var yjsUpdatedCalls = 0;
+        var proxy = new Mock<IClientProxy>(MockBehavior.Strict);
+        proxy.Setup(p => p.SendCoreAsync(
+                "YjsUpdated",
+                It.Is<object?[]>(args => MatchYjsUpdatedArgs(args, updateBase64, 2, "Alice", string.Empty)),
+                It.Is<CancellationToken>(token => token == cts.Token)))
+            .Callback(() => yjsUpdatedCalls++)
+            .Returns(Task.CompletedTask);
+
+        var clients = new Mock<IHubCallerClients>(MockBehavior.Strict);
+        var groupCalls = 0;
+        clients.Setup(c => c.Group(It.Is<string>(group => group == roomId)))
+            .Callback(() => groupCalls++)
+            .Returns(proxy.Object);
+
+        using var hub = CreateHub(roomManager.Object, clients: clients.Object, cancellationToken: cts.Token);
+
+        await hub.UpdateYjsAsync(roomId, updateBase64, string.Empty, "after");
+
+        room.Text.Value.Should().Be("after");
+        room.Version.Value.Should().Be(2);
+        room.YjsState.Should().BeEmpty();
+        tryGetRoomCounter.Count.Should().Be(1);
+        groupCalls.Should().Be(1);
+        yjsUpdatedCalls.Should().Be(1);
+    }
+
     [Fact(DisplayName = "SetLanguageAsyncShouldThrowWhenLanguageIsInvalid")]
     [Trait("Category", "Unit")]
     public async Task SetLanguageAsyncShouldThrowWhenLanguageIsInvalid()
@@ -789,6 +827,7 @@ public sealed class RoomHubTests
     private static RoomState CreateRoomState(
         string roomId,
         string text = "",
+        byte[]? yjsState = null,
         RoomAccessMode accessMode = RoomAccessMode.Standalone)
         => new(
             new RoomId(roomId),
@@ -798,5 +837,6 @@ public sealed class RoomHubTests
             new RoomVersion(1),
             DateTimeOffset.UtcNow,
             new AdminUser("admin", true),
+            yjsState ?? [],
             accessMode: accessMode);
 }

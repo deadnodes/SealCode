@@ -213,11 +213,12 @@ public sealed class RoomHub : Hub
     }
 
     /// <summary>
-    /// Applies a Yjs update and stores the latest Yjs state for new joiners.
+    /// Applies a Yjs update and stores the latest Yjs state for new joiners
+    /// when a full snapshot is supplied.
     /// </summary>
     /// <param name="roomId">The room identifier.</param>
     /// <param name="updateBase64">The incremental Yjs update (base64).</param>
-    /// <param name="stateBase64">The full Yjs document state (base64).</param>
+    /// <param name="stateBase64">The optional full Yjs document state (base64).</param>
     /// <param name="textSnapshot">The plain text snapshot of the document.</param>
     /// <returns>A task that represents the asynchronous operation.</returns>
     /// <exception cref="HubException">Thrown when inputs are invalid or the room is not found.</exception>
@@ -231,22 +232,21 @@ public sealed class RoomHub : Hub
             throw new HubException("Update payload required");
         }
 
-        if (string.IsNullOrWhiteSpace(stateBase64))
-        {
-            throw new HubException("State payload required");
-        }
-
         if (!_roomManager.TryGetRoom(parsedRoomId, out var room))
         {
             throw new HubException("Room not found");
         }
 
         byte[] update;
-        byte[] state;
+        byte[] state = [];
+        var hasFullState = !string.IsNullOrWhiteSpace(stateBase64);
         try
         {
             update = Convert.FromBase64String(updateBase64);
-            state = Convert.FromBase64String(stateBase64);
+            if (hasFullState)
+            {
+                state = Convert.FromBase64String(stateBase64);
+            }
         }
         catch (FormatException)
         {
@@ -257,15 +257,29 @@ public sealed class RoomHub : Hub
             ? user.Value
             : "unknown";
 
-        var text = textSnapshot ?? string.Empty;
-        if (!room.TryUpdateYjsState(state, new RoomText(text), DateTimeOffset.UtcNow, out var newVersion))
+        var text = new RoomText(textSnapshot ?? string.Empty);
+        RoomVersion newVersion;
+        if (hasFullState)
         {
-            return;
+            if (!room.TryUpdateYjsState(state, text, DateTimeOffset.UtcNow, out newVersion))
+            {
+                return;
+            }
+        }
+        else
+        {
+            newVersion = room.UpdateYjsIncremental(text, DateTimeOffset.UtcNow);
         }
 
         var cancellationToken = Context.ConnectionAborted;
         await Clients.Group(parsedRoomId.Value)
-            .SendAsync("YjsUpdated", updateBase64, newVersion.Value, author, stateBase64, cancellationToken)
+            .SendAsync(
+                "YjsUpdated",
+                updateBase64,
+                newVersion.Value,
+                author,
+                hasFullState ? stateBase64 : string.Empty,
+                cancellationToken)
             .ConfigureAwait(false);
     }
 

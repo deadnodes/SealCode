@@ -324,6 +324,25 @@ public sealed class RoomState
         }
     }
 
+    /// <summary>
+    /// Applies an incremental Yjs update by storing its plain text snapshot
+    /// and invalidating any stale full Yjs state.
+    /// </summary>
+    /// <param name="text">The plain text snapshot.</param>
+    /// <param name="updatedUtc">The update timestamp in UTC.</param>
+    /// <returns>The new room version.</returns>
+    public RoomVersion UpdateYjsIncremental(RoomText text, DateTimeOffset updatedUtc)
+    {
+        lock (_versionGuard)
+        {
+            Text = text;
+            YjsState = [];
+            Version = Version.Next();
+            LastUpdatedUtc = updatedUtc;
+            return Version;
+        }
+    }
+
     private readonly Lock _addGuard = new();
     private readonly Lock _versionGuard = new();
     private ImmutableDictionary<ConnectionId, RoomUser> _connectedUsers = [];

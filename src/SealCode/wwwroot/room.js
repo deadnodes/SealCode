@@ -52,6 +52,8 @@ let isRejoiningRoom = false;
 let rejoinRetryTimer = null;
 let rejoinRetryAttempt = 0;
 const rejoinRetryDelaysMs = [500, 1000, 2000, 5000, 10000];
+const fullYjsStateSyncIntervalMs = 30000;
+let lastFullYjsStateSentAt = 0;
 
 const connection = new signalR.HubConnectionBuilder()
   .withUrl(`/roomHub${platformAccessToken ? `?access_token=${encodeURIComponent(platformAccessToken)}` : ''}`)
@@ -65,7 +67,7 @@ connection.keepAliveIntervalInMilliseconds = 5000;
 
 window.__debugYjsSend = () => {
   if (!ydoc) return false;
-  scheduleYjsUpdateSend(Y.encodeStateAsUpdate(ydoc));
+  scheduleFullYjsStateSend();
   return true;
 };
 
@@ -140,7 +142,7 @@ async function rejoinRoomWithRetry() {
     setEditorReadOnly(false);
     setLanguageReadOnly(false);
     if (ydoc) {
-      scheduleYjsUpdateSend(Y.encodeStateAsUpdate(ydoc));
+      scheduleFullYjsStateSend();
     }
     return;
   }
@@ -489,25 +491,44 @@ function syncModelFromYjs() {
   }
 }
 
-function scheduleYjsUpdateSend(update) {
+function scheduleFullYjsStateSend() {
+  if (!ydoc) return;
+  lastFullYjsStateSentAt = 0;
+  scheduleYjsUpdateSend(Y.encodeStateAsUpdate(ydoc), { includeFullState: true });
+}
+
+function scheduleYjsUpdateSend(update, options = {}) {
   if (!update) return;
-  pendingYjsUpdates.push(update);
+  pendingYjsUpdates.push({
+    update,
+    includeFullState: Boolean(options.includeFullState)
+  });
   if (pendingYjsStateTimer) return;
   pendingYjsStateTimer = setTimeout(async () => {
     if (connection.state !== signalR.HubConnectionState.Connected) {
       pendingYjsStateTimer = null;
       return;
     }
-    const updates = pendingYjsUpdates;
+    const pending = pendingYjsUpdates;
     pendingYjsUpdates = [];
     pendingYjsStateTimer = null;
     if (!ydoc || !ytext) return;
     try {
+      const updates = pending.map((item) => item.update);
       const merged = updates.length === 1
         ? updates[0]
         : (Y.mergeUpdates ? Y.mergeUpdates(updates) : Y.encodeStateAsUpdate(ydoc));
       const updateBase64 = base64FromUint8(merged);
-      const stateBase64 = base64FromUint8(Y.encodeStateAsUpdate(ydoc));
+      const now = Date.now();
+      const shouldSendFullState =
+        pending.some((item) => item.includeFullState) ||
+        now - lastFullYjsStateSentAt >= fullYjsStateSyncIntervalMs;
+      const stateBase64 = shouldSendFullState
+        ? base64FromUint8(Y.encodeStateAsUpdate(ydoc))
+        : '';
+      if (shouldSendFullState) {
+        lastFullYjsStateSentAt = now;
+      }
       const snapshot = ytext.toString();
       await connection.invoke('UpdateYjs', roomId, updateBase64, stateBase64, snapshot);
     } catch (err) {
@@ -557,6 +578,7 @@ function initializeYjs(text, stateBase64) {
     }, 'init');
   }
   setText(ytext.toString());
+  lastFullYjsStateSentAt = Date.now();
   isBootstrapping = false;
 }
 
@@ -736,6 +758,9 @@ connection.on('UserJoined', (name, users) => {
   cursorPositions[name] ??= 0;
   renderUsers(users);
   renderRemoteCarets();
+  if (name !== displayName && currentUsers[0] === displayName) {
+    scheduleFullYjsStateSend();
+  }
 });
 
 connection.on('UserLeft', (name, users) => {
