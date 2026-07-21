@@ -48,7 +48,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: deadnodes-dev
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,7 +67,7 @@ jobs:
   publish:
     needs: test
     if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
-    runs-on: ubuntu-latest
+    runs-on: deadnodes-dev
     outputs:
       image_tag: ${{ steps.params.outputs.image_tag }}
     steps:
@@ -137,7 +137,7 @@ jobs:
   deploy:
     needs: publish
     if: ${{ github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
-    runs-on: ubuntu-latest
+    runs-on: deadnodes-dev
     steps:
       - name: Dispatch private pipeline
         env:
